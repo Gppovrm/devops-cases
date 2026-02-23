@@ -1,0 +1,41 @@
+# prometheus.yml
+global:
+  scrape_interval:     15s
+  evaluation_interval: 15s
+
+# Настройка Alertmanager
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['172.18.0.6:9093']
+
+# Подключаем файл с правилами алертов
+rule_files:
+  - "alerts.yml"
+
+# Настройка сбора метрик
+scrape_configs:
+  # Сбор метрик с самого Prometheus
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Сбор метрик с Node Exporter (метрики хоста)
+  - job_name: 'node'
+    static_configs:
+      - targets: ['node-exporter:9100']
+
+  # Сбор метрик с Alertmanager
+  - job_name: 'alertmanager'
+    static_configs:
+      - targets: ['alertmanager:9093']
+
+  # Если  nginx с метриками (например, nginx-exporter)
+  # - job_name: 'nginx'
+  #   static_configs:
+  #     - targets: ['nginx-exporter:9113']
+
+  # Если хочется мониторить сам Docker
+  # - job_name: 'docker'
+  #   static_configs:
+  #     - targets: ['docker:9323']

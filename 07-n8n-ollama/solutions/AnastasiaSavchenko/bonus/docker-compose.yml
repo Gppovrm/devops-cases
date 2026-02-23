@@ -1,0 +1,177 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: lab_postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=n8n
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - n8n_network
+
+  redis:
+    image: redis:7-alpine
+    container_name: lab_redis
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD}
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - n8n_network
+
+  n8n-main:
+    image: n8nio/n8n:1.123.5
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    container_name: n8n-main
+    restart: unless-stopped
+    extra_hosts:
+      - "gitlab.com:172.65.251.78"  # IPv4 адрес GitLab
+      - "api.telegram.org:149.154.166.110"  # IPv4 Telegram
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=postgres
+      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_USER=postgres
+      - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
+      - DB_POSTGRESDB_DATABASE=n8n
+      - N8N_METRICS=false
+      - N8N_VERSION_NOTIFICATIONS_ENABLED=false
+      - EXECUTIONS_DATA_PRUNE=true
+      - EXECUTIONS_DATA_MAX_AGE=168
+      - GENERIC_TIMEZONE=${GENERIC_TIMEZONE}
+      - N8N_DEFAULT_USER_TIMEZONE=${GENERIC_TIMEZONE}
+      - EXECUTIONS_MODE=queue
+      - QUEUE_BULL_REDIS_HOST=redis
+      - QUEUE_BULL_REDIS_PORT=6379
+      - QUEUE_BULL_REDIS_PASSWORD=${REDIS_PASSWORD}
+      - N8N_QUEUE_HEALTH_CHECK_ACTIVE=true
+      - N8N_PAYLOAD_SIZE_MAX=16
+    volumes:
+      - n8n_main_data:/home/node/.n8n
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - n8n_network
+
+  n8n-worker:
+    image: n8nio/n8n:1.123.5
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    container_name: n8n-worker
+    restart: unless-stopped
+    environment:
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=postgres
+      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_USER=postgres
+      - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
+      - DB_POSTGRESDB_DATABASE=n8n
+      - EXECUTIONS_DATA_PRUNE=true
+      - EXECUTIONS_DATA_MAX_AGE=168
+      - GENERIC_TIMEZONE=${GENERIC_TIMEZONE}
+      - N8N_DEFAULT_USER_TIMEZONE=${GENERIC_TIMEZONE}
+      - EXECUTIONS_MODE=queue
+      - QUEUE_BULL_REDIS_HOST=redis
+      - QUEUE_BULL_REDIS_PORT=6379
+      - QUEUE_BULL_REDIS_PASSWORD=${REDIS_PASSWORD}
+      - N8N_QUEUE_HEALTH_CHECK_ACTIVE=true
+      - N8N_PAYLOAD_SIZE_MAX=16
+    volumes:
+      - n8n_worker_data:/home/node/.n8n
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - n8n_network
+
+  ollama:
+    image: ollama/ollama:0.13.4
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    container_name: lab_ollama
+    restart: unless-stopped
+    volumes:
+      - ollama_data:/root/.ollama
+    ports:
+      - "11434:11434"
+    networks:
+      - n8n_network
+
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: node-exporter
+    restart: unless-stopped
+    ports:
+      - "9100:9100"
+    networks:
+      - n8n_network
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./alerts.yml:/etc/prometheus/alerts.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    depends_on:
+      - node-exporter
+    networks:
+      - n8n_network
+
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: alertmanager
+    restart: unless-stopped
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./alertmanager.yml:/etc/alertmanager/alertmanager.yml  # добавляем эту строку
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--web.external-url=http://localhost:9093'
+    networks:
+    - n8n_network
+
+volumes:
+  postgres_data:
+  redis_data:
+  n8n_main_data:
+  n8n_worker_data:
+  ollama_data:
+  prometheus_data:
+
+networks:
+  n8n_network:
+    driver: bridge
